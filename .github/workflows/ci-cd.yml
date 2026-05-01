@@ -3,42 +3,49 @@ name: CI-CD Pipeline
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      show_deploy_note:
+        description: "Show why the local VirtualBox VM cannot be deployed from GitHub Actions"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 env:
-  IMAGE_NAME: ${{ secrets.DOCKER_USER }}/myapp:latest
+  IMAGE_LATEST: ${{ secrets.DOCKER_USER }}/myapp:latest
+  IMAGE_SHA: ${{ secrets.DOCKER_USER }}/myapp:${{ github.sha }}
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Repo cek
+      - name: Repo checkout
         uses: actions/checkout@v4
 
-      - name: Docker login
+      - name: Docker Hub login
         run: echo "${{ secrets.DOCKER_PASS }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
 
-      - name: Image build
-        run: docker build -t "$IMAGE_NAME" .
+      - name: Docker image build
+        run: docker build -t "$IMAGE_LATEST" -t "$IMAGE_SHA" .
 
-      - name: Image push
-        run: docker push "$IMAGE_NAME"
+      - name: Docker image push latest
+        run: docker push "$IMAGE_LATEST"
 
-      - name: Ansible kur
+      - name: Docker image push commit SHA
+        run: docker push "$IMAGE_SHA"
+
+      # Local VirtualBox VM 127.0.0.1:2222 GitHub-hosted runner tarafindan erisilemez.
+      # GitHub Actions icinde 127.0.0.1 runner'in kendisidir, kullanicinin bilgisayari degildir.
+      # Gercek deploy icin public IP'li bir sunucu gerekir.
+      # Bu nedenle Ansible deploy otomatik calistirilmaz; local demo icin scripts/local-deploy.sh kullanilir.
+      - name: Local VM deploy note
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.show_deploy_note == 'true' }}
         run: |
-          sudo apt update
-          sudo apt install ansible -y
-
-      - name: SSH key ekle
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: Inventory olustur
-        run: |
-          printf "[web]\n%s ansible_user=%s\n" "${{ secrets.SERVER_HOST }}" "${{ secrets.SERVER_USER }}" > ansible/inventory.ini
-
-      - name: Deploy
-        run: ansible-playbook -i ansible/inventory.ini ansible/deploy.yml --extra-vars "docker_image=$IMAGE_NAME"
+          echo "Local VirtualBox VM 127.0.0.1:2222 GitHub-hosted runner tarafindan erisilemez."
+          echo "GitHub Actions icinde 127.0.0.1 runner'in kendisidir, kullanicinin bilgisayari degildir."
+          echo "Gercek deploy icin public IP'li bir sunucu gerekir."
+          echo "Bu projede Ansible deploy local demo olarak scripts/local-deploy.sh ile calistirilir."

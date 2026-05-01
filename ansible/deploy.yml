@@ -1,28 +1,72 @@
-- name: Docker container deploy
+- name: Deploy Flask Docker container to local VM
   hosts: web
   become: yes
   vars:
     app_container_name: myapp
-    app_image: "{{ docker_image | default('yourdockerhub/myapp:latest') }}"
+    image_name: "{{ docker_user | mandatory }}/myapp:latest"
 
   tasks:
-    - name: Docker kur
+    - name: Install Docker and curl
       apt:
-        name: docker.io
+        name:
+          - docker.io
+          - curl
         state: present
         update_cache: yes
 
-    - name: Docker baslat
+    - name: Ensure Docker service is enabled and started
       service:
         name: docker
         state: started
         enabled: yes
 
-    - name: Image cek
-      command: docker pull {{ app_image }}
+    - name: Pull latest Docker image
+      command: docker pull {{ image_name }}
+      register: pull_result
+      changed_when: "'Downloaded newer image' in pull_result.stdout or 'Pull complete' in pull_result.stdout"
 
-    - name: Eski container sil
-      shell: docker rm -f {{ app_container_name }} || true
+    - name: Check if old container exists
+      command: docker ps -aq --filter name=^/{{ app_container_name }}$
+      register: existing_container
+      changed_when: false
 
-    - name: Yeni container calistir
-      command: docker run -d -p 80:5000 --restart unless-stopped --name {{ app_container_name }} {{ app_image }}
+    - name: Remove old myapp container if it exists
+      command: docker rm -f {{ app_container_name }}
+      when: existing_container.stdout != ""
+
+    - name: Run new myapp container
+      command: >
+        docker run -d
+        --restart unless-stopped
+        -p 80:5000
+        --name {{ app_container_name }}
+        {{ image_name }}
+      register: run_result
+
+    - name: Check container status
+      command: >
+        docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ app_container_name }}
+      register: container_status
+      changed_when: false
+
+    - name: Assert container is running
+      assert:
+        that:
+          - container_status.stdout == "running"
+        fail_msg: "myapp container is not running."
+        success_msg: "myapp container is running."
+
+    - name: Test health endpoint
+      command: curl -fsS http://localhost/health
+      register: health_result
+      changed_when: false
+
+    - name: Assert health endpoint is OK
+      assert:
+        that:
+          - '"status" in health_result.stdout'
+          - '"ok" in health_result.stdout'
+          - '"service" in health_result.stdout'
+          - '"myapp" in health_result.stdout'
+        fail_msg: "Health endpoint failed."
+        success_msg: "Health endpoint returned OK."
