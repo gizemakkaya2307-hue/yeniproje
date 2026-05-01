@@ -1,0 +1,6 @@
+.git
+.github
+.sixth
+__pycache__/
+*.pyc
+.env

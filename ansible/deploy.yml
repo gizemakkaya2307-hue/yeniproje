@@ -1,0 +1,28 @@
+- name: Docker container deploy
+  hosts: web
+  become: yes
+  vars:
+    app_container_name: myapp
+    app_image: "{{ docker_image | default('yourdockerhub/myapp:latest') }}"
+
+  tasks:
+    - name: Docker kur
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Docker baslat
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Image cek
+      command: docker pull {{ app_image }}
+
+    - name: Eski container sil
+      shell: docker rm -f {{ app_container_name }} || true
+
+    - name: Yeni container calistir
+      command: docker run -d -p 80:5000 --restart unless-stopped --name {{ app_container_name }} {{ app_image }}
