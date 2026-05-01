@@ -6,22 +6,39 @@ Docker + Ansible + CI/CD ile Otomatik Gorev Takip Uygulamasi Dagitimi
 
 ## Proje Amaci
 
-Bu proje, Flask tabanli basit bir web uygulamasinin Docker ile container haline getirilmesini, GitHub Actions ile Docker image build/push yapilmasini ve Ansible ile Ubuntu Server VM'e deploy edilmesini gosterir.
+Bu proje, Flask tabanli basit bir web uygulamasinin Docker ile container haline getirilmesini, GitHub Actions ile Docker image build/push surecinin otomatiklestirilmesini ve Ansible ile Ubuntu VM uzerinde container deploy edilmesini gosterir.
 
-Bu projede iki ayri ortam vardir:
+Proje bir ogrenci sunumu/odevi olarak CI/CD mantigini uc ana parca ile anlatir:
 
-- GitHub Actions: Docker image build eder ve Docker Hub'a push eder.
-- Local VirtualBox Ubuntu VM: Ansible ile local demo deploy icin kullanilir.
+- Uygulama gelistirme: Flask web uygulamasi.
+- Paketleme ve yayinlama: Docker image ve Docker Hub.
+- Deploy otomasyonu: Ansible ile Ubuntu VM uzerinde container calistirma.
 
 ## Genel Mimari
 
 ```text
-Kod -> GitHub -> GitHub Actions -> Docker Hub
-                                  |
-                                  +-> Local demo: Ansible -> Ubuntu VM -> Docker Container
+Developer
+   |
+   v
+GitHub Repository
+   |
+   v
+GitHub Actions
+   |
+   v
+Docker Hub: brownekadn/myapp:latest
+   |
+   v
+Ansible
+   |
+   v
+Ubuntu VM
+   |
+   v
+Docker Container
 ```
 
-Not: GitHub Actions, kullanicinin bilgisayarindaki VirtualBox VM'e dogrudan baglanamaz. Bu nedenle Ansible deploy local demo olarak calistirilir.
+Bu mimaride GitHub Actions Docker image'i build edip Docker Hub'a push eder. Ubuntu VM tarafinda Ansible, Docker Hub'daki image'i cekip container olarak calistirir.
 
 ## Kullanilan Teknolojiler
 
@@ -29,49 +46,53 @@ Not: GitHub Actions, kullanicinin bilgisayarindaki VirtualBox VM'e dogrudan bagl
 - Flask
 - Docker
 - Docker Hub
-- Ansible
 - GitHub Actions
+- Ansible
 - Ubuntu Server VM
 - VirtualBox NAT ve port forwarding
 
-## Klasor Yapisi
+## CI/CD Akisi
+
+GitHub Actions workflow dosyasi:
 
 ```text
-project/
-+-- app/
-|   +-- app.py
-|   +-- requirements.txt
-+-- Dockerfile
-+-- .dockerignore
-+-- ansible/
-|   +-- inventory.ini
-|   +-- deploy.yml
-+-- .github/
-|   +-- workflows/
-|       +-- ci-cd.yml
-+-- scripts/
-|   +-- local-deploy.sh
-+-- README.md
+.github/workflows/ci-cd.yml
 ```
 
-## Local Docker Test
+Pipeline `main` branch'e push yapildiginda calisir:
 
-Image build:
+1. Repository checkout edilir.
+2. Docker Hub'a `DOCKER_USER` ve `DOCKER_PASS` secret'lari ile login olunur.
+3. Docker image build edilir.
+4. Image iki tag ile etiketlenir:
+   - `brownekadn/myapp:latest`
+   - `brownekadn/myapp:<commit-sha>`
+5. Image Docker Hub'a push edilir.
+
+Tamamlanan durum:
+
+- GitHub Actions pipeline basarili calisti.
+- Docker image Docker Hub'a push edildi.
+- Image adi: `brownekadn/myapp:latest`
+
+## Docker Hub Sureci
+
+Dockerfile, Flask uygulamasini `python:3.10-slim` image'i uzerinde calistirir.
+
+Dockerfile ozeti:
+
+- `WORKDIR /app`
+- `COPY app/ .`
+- `pip install --no-cache-dir -r requirements.txt`
+- `EXPOSE 5000`
+- Python tabanli `HEALTHCHECK`
+- `CMD ["python", "app.py"]`
+
+Local test:
 
 ```bash
 docker build -t myapp:local .
-```
-
-Container calistirma:
-
-```bash
 docker run --rm -p 5050:5000 --name myapp-local myapp:local
-```
-
-Tarayicida:
-
-```text
-http://127.0.0.1:5050
 ```
 
 Health endpoint:
@@ -80,296 +101,206 @@ Health endpoint:
 http://127.0.0.1:5050/health
 ```
 
-Beklenen JSON:
+Beklenen sonuc:
 
 ```json
 {"service":"myapp","status":"ok"}
 ```
 
-## Docker Hub Secrets
+## Ubuntu VM ve SSH Sureci
 
-GitHub reposunda su secret'lar bulunmalidir:
+Ubuntu VM VirtualBox uzerinde NAT modunda calistirildi.
 
-```text
-DOCKER_USER
-DOCKER_PASS
-SERVER_HOST
-SERVER_USER
-SSH_KEY
-```
-
-Bu projede GitHub Actions icin zorunlu olanlar:
-
-- `DOCKER_USER`: Docker Hub kullanici adi.
-- `DOCKER_PASS`: Docker Hub sifresi veya access token.
-
-Local VM bilgileri dokumantasyon ve local deploy icindir:
-
-- `SERVER_HOST`: `127.0.0.1`
-- `SERVER_USER`: `gizem`
-- `SSH_KEY`: Ubuntu VM'e baglanan private SSH key.
-
-## Ubuntu VM Bilgileri
-
-VirtualBox Ubuntu VM bilgileri:
+VM bilgileri:
 
 ```text
-SERVER_HOST = 127.0.0.1
-SERVER_USER = gizem
-SSH_PORT = 2222
 VM ic IP = 10.0.2.15
 Ubuntu kullanici adi = gizem
+SSH port forwarding = 127.0.0.1:2222 -> VM:22
 ```
 
-Inventory dosyasi:
+Windows host uzerinden SSH baglantisi:
+
+```bash
+ssh -p 2222 gizem@127.0.0.1
+```
+
+Tamamlanan durum:
+
+- Ubuntu VM kuruldu.
+- SSH baglantisi kuruldu.
+- Docker VM'e kuruldu.
+- `brownekadn/myapp:latest` image VM'e cekildi.
+- Container calistirildi.
+- Site `http://127.0.0.1:8080` uzerinden goruntulendi.
+
+## Ansible Deploy Mantigi
+
+Ansible inventory:
 
 ```ini
 [web]
 localvm ansible_host=127.0.0.1 ansible_port=2222 ansible_user=gizem ansible_connection=ssh
 ```
 
-## SSH Baglantisi
+Ansible playbook su islemleri yapar:
 
-Windows host uzerinden Ubuntu VM'e SSH testi:
-
-```bash
-ssh -p 2222 gizem@127.0.0.1
-```
-
-Bu baglanti basariliysa Windows host, VirtualBox port forwarding ile VM'e ulasabiliyor demektir.
-
-## GitHub Actions CI/CD Akisi
-
-Workflow dosyasi:
+1. Ubuntu VM uzerinde Docker ve curl paketlerini kurar.
+2. Docker servisinin started ve enabled olmasini saglar.
+3. Docker Hub'dan image ceker:
 
 ```text
-.github/workflows/ci-cd.yml
+brownekadn/myapp:latest
 ```
 
-`main` branch'e push yapilinca su islemler otomatik calisir:
-
-1. Repository checkout edilir.
-2. Docker Hub'a `DOCKER_USER` ve `DOCKER_PASS` secret'lari ile login olunur.
-3. Docker image build edilir.
-4. Image iki tag ile etiketlenir:
-   - `DOCKER_USER/myapp:latest`
-   - `DOCKER_USER/myapp:GITHUB_COMMIT_SHA`
-5. Iki tag Docker Hub'a push edilir.
-
-Deploy adimi pipeline'i bozmasin diye otomatik calistirilmaz. Workflow icinde su not vardir:
-
-```text
-Local VirtualBox VM 127.0.0.1:2222 GitHub-hosted runner tarafindan erisilemez.
-Gercek deploy icin public IP'li bir sunucu gerekir.
-```
-
-## Ansible Deploy Akisi
-
-Ansible local VM'e SSH ile baglanir:
-
-```text
-127.0.0.1:2222 -> VirtualBox port forwarding -> Ubuntu VM SSH
-```
-
-Playbook sunucuda sunlari yapar:
-
-1. `docker.io` ve `curl` paketlerini kurar.
-2. Docker servisini enabled ve started yapar.
-3. Docker Hub'dan `DOCKER_USER/myapp:latest` image'ini pull eder.
-4. Eski `myapp` container'i varsa siler.
+4. Eski `myapp` container'i varsa kaldirir.
 5. Yeni container'i calistirir:
 
 ```bash
-docker run -d --restart unless-stopped -p 80:5000 --name myapp IMAGE
+docker run -d --restart unless-stopped -p 80:5000 --name myapp brownekadn/myapp:latest
 ```
 
-6. Container durumunu kontrol eder.
-7. `curl http://localhost/health` ile healthcheck yapar.
+6. `curl http://localhost/health` ile healthcheck yapar.
 
-## Local Deploy Calistirma
-
-Once GitHub Actions ile image Docker Hub'a push edilmis olmali. Sonra local deploy calistirilir.
-
-WSL, Git Bash veya Ubuntu VM icinden:
+Local deploy komutu:
 
 ```bash
-chmod +x scripts/local-deploy.sh
-./scripts/local-deploy.sh DOCKERHUB_USERNAME
+ansible-playbook -i ansible/inventory.ini ansible/deploy.yml --extra-vars "docker_user=brownekadn" --ask-become-pass
 ```
 
-Ornek:
+Script ile:
 
 ```bash
-./scripts/local-deploy.sh gizemakkaya
+./scripts/local-deploy.sh brownekadn
 ```
-
-Script su komutu calistirir:
-
-```bash
-ansible-playbook -i ansible/inventory.ini ansible/deploy.yml --extra-vars "docker_user=DOCKERHUB_USERNAME" --ask-become-pass
-```
-
-Windows PowerShell kullanirken Ansible yuku degilse iki pratik secenek vardir:
-
-1. WSL icine Ansible kurup komutu WSL terminalinden calistirin.
-2. Ubuntu VM icinde projeyi clone edip VM'e uygun inventory ile Ansible komutunu calistirin.
-
-WSL icin ornek kurulum:
-
-```bash
-sudo apt update
-sudo apt install ansible -y
-```
-
-PowerShell uzerinden WSL ile calistirma ornegi:
-
-```powershell
-wsl bash scripts/local-deploy.sh DOCKERHUB_USERNAME
-```
-
-Ubuntu VM icinden calistiracaksaniz `127.0.0.1:2222` yerine VM'in kendi SSH erisimini kullanacak ayri bir inventory gerekir. Bu repodaki varsayilan inventory Windows host veya WSL tarafindan VirtualBox port forwarding uzerinden baglanmak icindir.
 
 ## Public IP vs Private IP
 
-Public IP:
+### Public IP
 
-- Internete aciktir.
-- Genellikle ISP veya cloud provider tarafindan verilir.
-- Dis dunyadan erisilebilir.
-- GitHub Actions gibi bulut sistemlerinden erisilebilir olmasi icin sunucunun public IP'si gerekir.
+Public IP internete acik, ISP veya cloud provider tarafindan verilen ve dis dunyadan erisilebilen IP adresidir.
 
-Private IP:
+Ornek:
 
-- Yerel ag icinde kullanilir.
-- Dogrudan internetten erisilemez.
-- Ornek araliklar: `10.x.x.x`, `172.16.x.x`, `192.168.x.x`.
+```text
+8.8.8.8
+```
 
-Bu projede Ubuntu VM'in ic IP adresi:
+Public IP, GitHub Actions gibi bulut sistemlerinden erisilecek gercek sunucular icin gereklidir.
+
+### Private IP
+
+Private IP yerel ag icinde kullanilan ve dogrudan internetten erisilemeyen IP adresidir.
+
+Ornek:
+
+```text
+192.168.1.10
+10.0.2.15
+```
+
+Private IP'li cihazlar internete router/NAT uzerinden cikar.
+
+### Bu Projedeki Durum
+
+Ubuntu VM, VirtualBox NAT icinde su IP'yi aldi:
 
 ```text
 10.0.2.15
 ```
 
-Windows host uzerinden SSH baglantisi ise VirtualBox port forwarding ile yapilir:
+Windows host, port forwarding ile VM'e SSH baglantisi kurdu:
 
 ```text
 127.0.0.1:2222 -> Ubuntu VM:22
 ```
 
+Web uygulamasi su adreste goruntulendi:
+
+```text
+http://127.0.0.1:8080
+```
+
+Onemli nokta: GitHub Actions bulutta calistigi icin workflow icinde `127.0.0.1` yazmak bizim bilgisayarimizi gostermez. GitHub runner'in kendi makinesini gosterir. Bu nedenle local VM deploy islemi GitHub Actions'ta otomatik calistirilmaz; local demo olarak Ansible ile calistirilir.
+
 ## Data Warehouse vs Data Lake vs Data Mesh
 
-Data Warehouse:
+### Data Warehouse
 
-- Temizlenmis ve organize edilmis veri saklanir.
-- Analiz, raporlama ve BI dashboard icin uygundur.
+Temizlenmis, duzenlenmis ve analiz icin hazir verilerin tutuldugu yapidir.
 
-Data Lake:
+Kullanim:
 
-- Ham veri saklanir.
-- Veri ihtiyac oldukca islenir.
-- Log, dosya, medya ve veri bilimi senaryolari icin uygundur.
+- Raporlama
+- BI dashboard
+- Karar destek sistemleri
 
-Data Mesh:
+Kisa ozet: Veri once temizlenir ve organize edilir, sonra analiz edilir.
 
-- Veri merkezi tek bir ekip yerine domain ekipleri tarafindan sahiplenilir.
-- Satis, pazarlama, finans gibi ekipler veriyi veri urunu olarak yonetir.
+### Data Lake
 
-## Onemli Not: GitHub Actions Neden Local VM'e Baglanamaz?
+Ham verilerin saklandigi, ihtiyac oldukca islendigi veri depolama yaklasimidir.
 
-GitHub Actions GitHub'in bulut runner'larinda calisir. Bu yuzden workflow icinde `127.0.0.1` yazildiginda bu adres senin Windows bilgisayarini veya VirtualBox VM'ini degil, GitHub runner makinesini ifade eder.
+Kullanim:
 
-Senin local SSH baglantin:
+- Log verileri
+- Dosyalar
+- Medya verileri
+- Veri bilimi
+- Makine ogrenmesi
 
-```bash
-ssh -p 2222 gizem@127.0.0.1
-```
+Kisa ozet: Veri once ham haliyle saklanir, sonra ihtiyaca gore islenir.
 
-Windows host uzerinde calisir, cunku VirtualBox port forwarding sadece senin bilgisayarinda gecerlidir.
+### Data Mesh
 
-GitHub Actions tarafindan gercek deploy yapmak icin:
+Verinin merkezi tek ekip yerine domain ekipleri tarafindan veri urunu olarak yonetildigi yaklasimdir.
 
-- Public IP'li bir VPS/cloud sunucu gerekir.
-- 22 veya belirlenen SSH portu internetten erisilebilir olmalidir.
-- Firewall/security group ayarlari SSH ve HTTP trafigine izin vermelidir.
+Kullanim:
 
-## Demo Senaryosu
+- Satis verisi
+- Pazarlama verisi
+- Finans verisi
+- Domain ekiplerinin kendi veri urunleri
 
-1. Kodu GitHub'a push et.
-2. GitHub Actions Docker image'i build eder.
-3. Image Docker Hub'a `latest` ve commit SHA tag ile push edilir.
-4. Local bilgisayarda veya WSL'de Ansible komutunu calistir:
+Kisa ozet: Her is alani kendi verisinin sahibi olur ve veriyi kullanilabilir bir urun gibi yonetir.
 
-```bash
-./scripts/local-deploy.sh DOCKERHUB_USERNAME
-```
+## Proje Demo Adimlari
 
-5. VM icinde container calisir.
-6. Windows host veya VM icinden uygulama test edilir.
+Sunumda gosterilebilecek ekranlar:
 
-VM icinden:
-
-```bash
-curl http://localhost/health
-```
-
-Eger VirtualBox HTTP port forwarding eklediysen Windows host uzerinden de ilgili port ile test edebilirsin.
-
-## Sik Hatalar ve Cozumleri
-
-### Docker Hub login hatasi
-
-Sebep: `DOCKER_USER` veya `DOCKER_PASS` hatali olabilir.
-
-Cozum: Docker Hub access token olusturup `DOCKER_PASS` secret'ina ekleyin.
-
-### GitHub Actions local VM'e baglanamiyor
-
-Sebep: `127.0.0.1`, GitHub runner'in kendisidir.
-
-Cozum: Local VM deploy'u GitHub Actions'ta otomatik calistirmayin. Local deploy icin `scripts/local-deploy.sh` kullanin.
-
-### SSH permission denied
-
-Sebep: SSH key, kullanici veya port hatali olabilir.
-
-Cozum:
+1. GitHub repository ve proje dosya yapisi.
+2. GitHub Actions basarili pipeline ekrani.
+3. Docker Hub uzerinde `brownekadn/myapp:latest` image'i.
+4. Ubuntu VM SSH baglantisi:
 
 ```bash
 ssh -p 2222 gizem@127.0.0.1
 ```
 
-komutunu test edin.
-
-### Ansible sudo sifresi istiyor
-
-Sebep: Playbook `become: yes` kullaniyor.
-
-Cozum: Komutu `--ask-become-pass` ile calistirin. Script bunu otomatik ekler.
-
-### 80 portu calismiyor
-
-Sebep: VM icinde baska servis 80 portunu kullaniyor olabilir veya port forwarding yoktur.
-
-Cozum:
+5. VM uzerinde Docker container durumu:
 
 ```bash
-sudo ss -tulpn | grep :80
 docker ps
 ```
 
-### Healthcheck basarisiz
-
-Sebep: Container calismiyor veya Flask uygulamasi cevap vermiyor olabilir.
-
-Cozum:
+6. Health endpoint testi:
 
 ```bash
-docker logs myapp
 curl http://localhost/health
 ```
 
-### Ansible Windows PowerShell'de yok
+7. Tarayicida calisan uygulama:
 
-Sebep: Ansible Windows'ta native olarak kolay calismayabilir.
+```text
+http://127.0.0.1:8080
+```
 
-Cozum: WSL veya Ubuntu VM icinde Ansible calistirin.
+8. Web arayuzundeki teknik konu bolumleri:
+   - Public IP vs Private IP
+   - Data Warehouse vs Data Lake vs Data Mesh
+
+## Sonuc
+
+Bu proje ile Flask uygulamasi Docker image haline getirildi, GitHub Actions ile otomatik build/push sureci kuruldu ve Docker Hub'a image gonderildi. Ubuntu VM uzerinde Docker kuruldu, Ansible ile container deploy edildi ve uygulama `http://127.0.0.1:8080` adresinden basarili sekilde goruntulendi.
+
+Proje hem CI/CD mantigini hem de temel ag/veri mimarisi kavramlarini sade bir ogrenci sunumu formatinda gostermektedir.
